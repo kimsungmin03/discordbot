@@ -1,0 +1,60 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Player {
+  id             String   @id // Discord User ID
+  name           String   @unique // 3-char real name
+  nickname       String   // League ign + tag
+  puuid          String?  // Riot PUUID
+  age            String
+  currentTier    String
+  highestTier    String
+  mainPosition   String?  // 주라인 (탑, 정글, 미드, 원딜, 서폿)
+  lineTop        Boolean  @default(false)
+  lineJungle     Boolean  @default(false)
+  lineMid        Boolean  @default(false)
+  lineAd         Boolean  @default(false)
+  lineSupport    Boolean  @default(false)
+  maxTierSort    Int      @default(26)
+  wins           Int      @default(0)
+  losses         Int      @default(0)
+  mmr            Int      @default(1000)
+  totalVoiceTime Int      @default(0) // 누적 접속 시간 (초)
+}
+
+model Match {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @default(now())
+  blueTeam  String   @db.Text // JSON string of player names
+  redTeam   String   @db.Text // JSON string of player names
+  winner    String   // "BLUE", "RED", "PENDING", "CANCELLED"
+}
+
+model Lobby {
+  id           String   @id // Discord message ID
+  channelId    String
+  creatorId    String
+  creatorName  String
+  status       String   // "OPEN", "COMPLETED", "CANCELLED"
+  participants String   @db.Text // JSON string of player IDs
+  blueTeam     String?  @db.Text // JSON string of player names
+  redTeam      String?  @db.Text // JSON string of player names
+  timestamp    DateTime @default(now())
+}
+
+model VoiceLog {
+  id          Int      @id @default(autoincrement())
+  userId      String   // 디스코드 유저 ID
+  userName    String   // 유저 이름 (3글자 실명 또는 username)
+  channelId   String   // 채널 ID
+  channelName String   // 채널 이름
+  joinTime    DateTime
+  leaveTime   DateTime
+  duration    Int      // 통화 시간 (초)
+}

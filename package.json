@@ -1,0 +1,17 @@
+{
+  "name": "discord-google-bot",
+  "version": "1.0.0",
+  "description": "Discord Bot integrated with Google Sheets to recruit LoL in-house match players",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js",
+    "test-sheets": "node test-sheets.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.5",
+    "googleapis": "^144.0.0"
+  }
+}

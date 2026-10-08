@@ -1,0 +1,28 @@
+{
+  "name": "lol-matchmaker-server",
+  "version": "1.0.0",
+  "description": "Backend server and Discord bot for LoL in-house matchmaking and stats",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "import": "node googleImport.js",
+    "import-csv": "node importCsv.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev --name init",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.12.1",
+    "cors": "^2.8.5",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "googleapis": "^144.0.0",
+    "node-cron": "^4.6.0",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "prisma": "^5.12.1"
+  }
+}

@@ -1,0 +1,57 @@
+# ==========================================
+# 민감 정보 및 보안 파일 (절대 커밋 금지)
+# ==========================================
+.env
+.env.*
+!.env.example
+*.env
+server/.env
+client/.env
+
+# 구글 API 인증키 및 서비스 계정 파일
+credentials.json
+client_secret*.json
+service-account*.json
+*.pem
+
+# 개인정보 및 데이터 파일
+*.csv
+*.xlsx
+*.xls
+members*.csv
+
+# 로컬 데이터베이스
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+prisma/dev.db
+server/prisma/dev.db
+
+# ==========================================
+# 의존성 및 빌드 결과물
+# ==========================================
+node_modules/
+server/node_modules/
+client/node_modules/
+
+# 빌드 및 정적 산출물
+dist/
+build/
+client/dist/
+
+# 로그 및 디버깅 파일
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# 임시 작업 디렉토리
+scratch/
+server/scratch/
+
+# 운영체제 및 에디터 설정
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
