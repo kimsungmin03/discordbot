@@ -6,6 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
+    "server": "npm --prefix server start",
+    "db:generate": "npm --prefix server run db:generate",
+    "build:client": "npm --prefix client run build",
     "deploy": "node deploy-commands.js",
     "test-sheets": "node test-sheets.js"
   },

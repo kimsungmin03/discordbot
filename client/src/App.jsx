@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import Lobby from './pages/Lobby';
+import TeamDraft from './pages/TeamDraft';
 import Leaderboard from './pages/Leaderboard';
 import Matchup from './pages/Matchup';
 import VoiceUsage from './pages/VoiceUsage';
@@ -85,6 +86,13 @@ function App() {
             대기열 현황
           </button>
           <button 
+            className={`nav-link ${activeTab === 'draft' ? 'active' : ''}`}
+            onClick={() => setActiveTab('draft')}
+            style={{ color: activeTab === 'draft' ? 'var(--gold-primary)' : undefined, fontWeight: '700' }}
+          >
+            🎮 팀 드래프트
+          </button>
+          <button 
             className={`nav-link ${activeTab === 'matchup' ? 'active' : ''}`}
             onClick={() => setActiveTab('matchup')}
           >
@@ -94,7 +102,7 @@ function App() {
             className={`nav-link ${activeTab === 'leaderboard' ? 'active' : ''}`}
             onClick={() => setActiveTab('leaderboard')}
           >
-            MMR 랭킹판
+            소환사 랭킹판
           </button>
           <button 
             className={`nav-link ${activeTab === 'voice' ? 'active' : ''}`}
@@ -138,6 +146,12 @@ function App() {
             <span className="sidebar-icon">👥</span> 대기열 현황
           </button>
           <button 
+            className={`sidebar-link ${activeTab === 'draft' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('draft'); setIsSidebarOpen(false); }}
+          >
+            <span className="sidebar-icon">🎮</span> 팀 드래프트
+          </button>
+          <button 
             className={`sidebar-link ${activeTab === 'matchup' ? 'active' : ''}`}
             onClick={() => { setActiveTab('matchup'); setIsSidebarOpen(false); }}
           >
@@ -147,7 +161,7 @@ function App() {
             className={`sidebar-link ${activeTab === 'leaderboard' ? 'active' : ''}`}
             onClick={() => { setActiveTab('leaderboard'); setIsSidebarOpen(false); }}
           >
-            <span className="sidebar-icon">🏆</span> MMR 랭킹판
+            <span className="sidebar-icon">🏆</span> 소환사 랭킹판
           </button>
           <button 
             className={`sidebar-link ${activeTab === 'voice' ? 'active' : ''}`}
@@ -165,7 +179,10 @@ function App() {
       {/* Main Page Area */}
       <main className="main-content">
         {activeTab === 'lobby' && (
-          <Lobby lobby={lobby} />
+          <Lobby lobby={lobby} onNavigateTab={setActiveTab} />
+        )}
+        {activeTab === 'draft' && (
+          <TeamDraft lobby={lobby} allPlayers={players} onNavigateTab={setActiveTab} />
         )}
         {activeTab === 'matchup' && (
           <Matchup matches={matches} />
@@ -182,3 +199,4 @@ function App() {
 }
 
 export default App;
+

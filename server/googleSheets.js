@@ -291,4 +291,42 @@ export async function syncAllPlayersToSheet(players) {
   }
 }
 
+/**
+ * Updates 1팀(블루) and 2팀(레드) in the Google Sheet if ranges or sheet is configured.
+ * @param {string[]} blueTeam - Array of 5 player names
+ * @param {string[]} redTeam - Array of 5 player names
+ * @returns {Promise<boolean>}
+ */
+export async function updateTeamsToSheet(blueTeam, redTeam) {
+  const client = initSheets();
+  if (!client) return false;
 
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  const sheetName = process.env.SHEET_NAME || '시트1';
+  if (!spreadsheetId) return false;
+
+  const blueRange = process.env.SHEET_TEAMS_BLUE_RANGE || `'${sheetName}'!E2:E6`;
+  const redRange = process.env.SHEET_TEAMS_RED_RANGE || `'${sheetName}'!G2:G6`;
+
+  try {
+    const blueValues = (blueTeam || []).map(name => [name]);
+    const redValues = (redTeam || []).map(name => [name]);
+
+    await client.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: 'USER_ENTERED',
+        data: [
+          { range: blueRange, values: blueValues },
+          { range: redRange, values: redValues },
+        ],
+      },
+    });
+
+    console.log(`✅ [Google Sheets] Updated Blue/Red teams to Google Sheet.`);
+    return true;
+  } catch (error) {
+    console.warn(`⚠️ [Google Sheets] Could not write teams to sheet:`, error.message);
+    return false;
+  }
+}

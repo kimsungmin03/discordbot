@@ -1,23 +1,36 @@
 import React from 'react';
 
-function Lobby({ lobby }) {
+function Lobby({ lobby, onNavigateTab }) {
   // Generate 10 slots
   const slots = Array.from({ length: 10 }, (_, i) => {
     const player = lobby?.participants?.[i] || null;
     return { number: i + 1, player };
   });
 
+  const participantCount = lobby?.participants?.length || 0;
+
   return (
     <div className="lobby-page">
       <div className="page-title-section">
         <h2 className="page-title">실시간 대기열 현황</h2>
-        {lobby ? (
-          <span className={`lobby-status-badge ${lobby.status === 'COMPLETED' ? 'closed' : ''}`}>
-            {lobby.status === 'OPEN' ? `모집 중 (${lobby.participants.length}/10)` : '모집 완료'}
-          </span>
-        ) : (
-          <span className="lobby-status-badge closed">비활성 대기열</span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {lobby ? (
+            <span className={`lobby-status-badge ${lobby.status === 'COMPLETED' ? 'closed' : ''}`}>
+              {lobby.status === 'OPEN' ? `모집 중 (${lobby.participants.length}/10)` : '모집 완료'}
+            </span>
+          ) : (
+            <span className="lobby-status-badge closed">비활성 대기열</span>
+          )}
+          {onNavigateTab && (
+            <button
+              className="btn-draft-shortcut"
+              onClick={() => onNavigateTab('draft')}
+              title="웹 화면에서 10인 팀 드래프트 진행하기"
+            >
+              🎮 웹에서 팀 뽑기
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="lobby-dashboard">
@@ -91,14 +104,32 @@ function Lobby({ lobby }) {
                   ))}
                 </div>
               </div>
+
+              {onNavigateTab && (
+                <button
+                  className="draft-btn highlight-gold"
+                  style={{ width: '100%', marginTop: '1rem', padding: '0.8rem' }}
+                  onClick={() => onNavigateTab('draft')}
+                >
+                  ✏️ 웹에서 팀 다시 뽑기 / 수정
+                </button>
+              )}
             </div>
           ) : (
-            <div className="hex-card" style={{ textAlign: 'center', padding: '3rem 2rem', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📊</div>
-              <h4 style={{ color: 'var(--gold-primary)', marginBottom: '0.5rem' }}>구글 시트 실시간 연동</h4>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                디스코드 대기열에 등록된 참가자 명단은 구글 시트의 <strong>C2:C11</strong> 영역에 실시간으로 자동 동기화됩니다.
+            <div className="hex-card" style={{ textAlign: 'center', padding: '2.5rem 1.5rem', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎮</div>
+              <h4 style={{ color: 'var(--gold-primary)', marginBottom: '0.5rem' }}>웹 기반 10인 팀 드래프트</h4>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
+                구글 시트 대신 웹 브라우저에서 선수 아이콘을 직접 클릭하여 1팀과 2팀으로 간편하게 팀을 뽑을 수 있습니다!
               </p>
+              {onNavigateTab && (
+                <button
+                  className="btn-draft-action-primary"
+                  onClick={() => onNavigateTab('draft')}
+                >
+                  ⚡ 웹에서 팀 뽑기 시작
+                </button>
+              )}
             </div>
           )}
         </div>

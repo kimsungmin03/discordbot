@@ -1185,8 +1185,8 @@ export async function initBot(io) {
 
   const token = process.env.DISCORD_TOKEN;
   if (!token || token === 'your_discord_bot_token_here') {
-    console.error('❌ Error: DISCORD_TOKEN is missing or not set in the .env file.');
-    process.exit(1);
+    console.log('ℹ️ [Discord Bot] DISCORD_TOKEN이 설정되지 않았습니다. 디스코드 봇 연동을 건너뛰고 웹 대시보드(테스트 모드)만 단독 가동합니다.');
+    return;
   }
 
   await discordClient.login(token);
