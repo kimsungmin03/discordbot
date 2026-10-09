@@ -70,15 +70,8 @@ const DEFAULT_PLAYERS = [
   { id: 'p10', name: '임태훈', nickname: 'Delight#KR1', currentTier: '다이아1', highestTier: '마스터', mainPosition: '서폿', lineSupport: true },
 ];
 
-// Slot roles: 팀장, 1픽, 2픽, 3픽, 4픽
+// Slot roles (팀장, 1픽, 2픽, 3픽, 4픽)
 const SLOT_ROLES = ['팀장', '1픽', '2픽', '3픽', '4픽'];
-const SLOT_ICONS = {
-  '팀장': '👑',
-  '1픽': '🥇',
-  '2픽': '🥈',
-  '3픽': '🥉',
-  '4픽': '🎖️'
-};
 
 // Standard LoL Snake Draft Sequence for 8 remaining picks after 2 Captains:
 // 1팀 -> 2팀 -> 2팀 -> 1팀 -> 1팀 -> 2팀 -> 2팀 -> 1팀
@@ -110,41 +103,60 @@ const getTierColor = (tier) => {
   return '#a09c90';
 };
 
-// Generates consistent LoL avatar URL based on string
-const getAvatarUrl = (name, index) => {
-  const iconIds = [588, 6, 7, 8, 9, 10, 11, 12, 13, 14, 29, 32, 532, 548, 563, 612];
-  let charSum = 0;
-  for (let i = 0; i < (name || '').length; i++) {
-    charSum += (name || '').charCodeAt(i);
+// Player position text helper
+const getPlayerPositionText = (p) => {
+  if (!p) return '-';
+  if (p.mainPosition) {
+    const sub = [];
+    if (p.lineTop && p.mainPosition !== '탑') sub.push('탑');
+    if (p.lineJungle && p.mainPosition !== '정글') sub.push('정글');
+    if (p.lineMid && p.mainPosition !== '미드') sub.push('미드');
+    if (p.lineAd && p.mainPosition !== '원딜') sub.push('원딜');
+    if (p.lineSupport && p.mainPosition !== '서폿') sub.push('서폿');
+    if (sub.length > 0) return `${p.mainPosition}(${sub.join(',')})`;
+    return p.mainPosition;
   }
-  const iconId = iconIds[(charSum + index) % iconIds.length];
-  return `https://ddragon.leagueoflegends.com/cdn/14.20.1/img/profileicon/${iconId}.png`;
+  const lines = [];
+  if (p.lineTop) lines.push('탑');
+  if (p.lineJungle) lines.push('정글');
+  if (p.lineMid) lines.push('미드');
+  if (p.lineAd) lines.push('원딜');
+  if (p.lineSupport) lines.push('서폿');
+  return lines.length > 0 ? lines.join('/') : '-';
+};
+
+// Position badge color
+const getPositionColor = (posStr) => {
+  if (!posStr) return '#8ea2b4';
+  if (posStr.startsWith('탑')) return '#b388ff';
+  if (posStr.startsWith('정글')) return '#00e676';
+  if (posStr.startsWith('미드')) return '#ffab00';
+  if (posStr.startsWith('원딜')) return '#00b0ff';
+  if (posStr.startsWith('서폿')) return '#ff4081';
+  return '#8ea2b4';
 };
 
 function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
-  // Pool of players currently waiting to be picked (Unassigned)
-  const [pool, setPool] = useState([]);
-  
-  // 1팀 선수 목록 (5 slots: [팀장, 1픽, 2픽, 3픽, 4픽])
+  // 10 Fixed Players (Table: 2 rows of 5 players)
+  const [rosterPlayers, setRosterPlayers] = useState([]);
+
+  // 1팀(블루) 선수 5 slots: [팀장, 1픽, 2픽, 3픽, 4픽]
   const [team1Slots, setTeam1Slots] = useState([null, null, null, null, null]);
-  // 2팀 선수 목록 (5 slots: [팀장, 1픽, 2픽, 3픽, 4픽])
+  // 2팀(레드) 선수 5 slots: [팀장, 1픽, 2픽, 3픽, 4픽]
   const [team2Slots, setTeam2Slots] = useState([null, null, null, null, null]);
 
   // History stack for Undo
   const [pickHistory, setPickHistory] = useState([]);
 
-  // Final Side Selection (Decided at the very end):
-  // team1Side: 'BLUE' | 'RED', team2Side: 'RED' | 'BLUE'
-  const [team1Side, setTeam1Side] = useState('BLUE');
-
-  // Modal for picking 10 players from all DB players
+  // Roster modal
   const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
   const [selectedRosterIds, setSelectedRosterIds] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Status message
+  // Status message & UI state
   const [statusMessage, setStatusMessage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
 
   // Sort helper by highestTier
   const sortByHighestTier = (list) => {
@@ -156,19 +168,15 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
     });
   };
 
-  // Determine current draft phase / target slot:
-  // Phase 1: Team 1 Captain (team1Slots[0] is null)
-  // Phase 2: Team 2 Captain (team2Slots[0] is null)
-  // Phase 3: Snake pick sequence (Step 1 ~ 8)
+  // Determine current draft target slot
   const getCurrentDraftTarget = () => {
     if (!team1Slots[0]) {
-      return { type: 'CAPTAIN', team: 1, slotIndex: 0, label: '👑 1팀 팀장' };
+      return { type: 'CAPTAIN', team: 1, slotIndex: 0, label: '1팀 팀장' };
     }
     if (!team2Slots[0]) {
-      return { type: 'CAPTAIN', team: 2, slotIndex: 0, label: '👑 2팀 팀장' };
+      return { type: 'CAPTAIN', team: 2, slotIndex: 0, label: '2팀 팀장' };
     }
 
-    // Captains are set, find next slot in DRAFT_SEQUENCE
     for (const seq of DRAFT_SEQUENCE) {
       const targetSlots = seq.team === 1 ? team1Slots : team2Slots;
       if (!targetSlots[seq.slotIndex]) {
@@ -183,12 +191,12 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
       }
     }
 
-    return null; // All 10 players picked!
+    return null; // All 10 picked
   };
 
   const currentTarget = getCurrentDraftTarget();
 
-  // Initialize pool from lobby participants or DB players (sorted by highest tier)
+  // Initialize roster (10 players)
   useEffect(() => {
     initDraftPool();
   }, [lobby, allPlayers]);
@@ -203,37 +211,61 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
       source = DEFAULT_PLAYERS;
     }
 
-    setPool(sortByHighestTier(source));
+    const sortedTen = sortByHighestTier(source);
+    setRosterPlayers(sortedTen);
     setTeam1Slots([null, null, null, null, null]);
     setTeam2Slots([null, null, null, null, null]);
     setPickHistory([]);
-    setTeam1Side('BLUE');
   };
 
-  // Click on a player icon in the waiting pool: PICK PLAYER
-  const handlePlayerClick = (player) => {
-    if (!currentTarget) {
-      showFeedback('🎉 10명 배정이 이미 완료되었습니다! 아래에서 진영(블루/레드)을 선택하세요.', 'info');
+  // Check which team a player is assigned to
+  const getPlayerAssignment = (player) => {
+    const t1Idx = team1Slots.findIndex(p => p && p.id === player.id);
+    if (t1Idx !== -1) return { team: 1, slotIdx: t1Idx, role: SLOT_ROLES[t1Idx] };
+    const t2Idx = team2Slots.findIndex(p => p && p.id === player.id);
+    if (t2Idx !== -1) return { team: 2, slotIdx: t2Idx, role: SLOT_ROLES[t2Idx] };
+    return null;
+  };
+
+  // Click on a player card:
+  // If not assigned: assign to current draft turn slot
+  // If already assigned: remove from team
+  const handlePlayerCardClick = (player) => {
+    const assignment = getPlayerAssignment(player);
+    if (assignment) {
+      handleRemoveFromSlot(assignment.team, assignment.slotIdx);
       return;
     }
 
+    if (!currentTarget) {
+      showFeedback('10명 배정이 이미 완료되었습니다.', 'info');
+      return;
+    }
     assignPlayerToSlot(player, currentTarget.team, currentTarget.slotIndex);
+  };
+
+  // Direct assign to specific team's next empty slot
+  const handleAssignToTeam = (player, targetTeam, e) => {
+    if (e) e.stopPropagation();
+    const assignment = getPlayerAssignment(player);
+    if (assignment) return; // already assigned
+
+    const targetSlots = targetTeam === 1 ? team1Slots : team2Slots;
+    const emptyIdx = targetSlots.findIndex(s => s === null);
+    if (emptyIdx === -1) {
+      showFeedback(`${targetTeam}팀 슬롯이 가득 찼습니다.`, 'warning');
+      return;
+    }
+
+    assignPlayerToSlot(player, targetTeam, emptyIdx);
   };
 
   // Assign player to specific team slot
   const assignPlayerToSlot = (player, team, slotIdx) => {
-    // Record history for undo
     setPickHistory(prev => [...prev, {
-      player,
-      team,
-      slotIdx,
-      prevPool: pool,
       prevTeam1: [...team1Slots],
       prevTeam2: [...team2Slots],
     }]);
-
-    // Remove from pool
-    setPool(prev => prev.filter(p => p.id !== player.id));
 
     if (team === 1) {
       setTeam1Slots(prev => {
@@ -250,27 +282,30 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
     }
   };
 
-  // Undo last pick
+  // Undo last action
   const handleUndoLastPick = () => {
     if (pickHistory.length === 0) {
-      showFeedback('되돌릴 픽 기록이 없습니다.', 'warning');
+      showFeedback('되돌릴 기록이 없습니다.', 'warning');
       return;
     }
-
     const last = pickHistory[pickHistory.length - 1];
-    setPool(last.prevPool);
     setTeam1Slots(last.prevTeam1);
     setTeam2Slots(last.prevTeam2);
     setPickHistory(prev => prev.slice(0, -1));
-    showFeedback('↩️ 직전 픽을 취소하고 되돌렸습니다.', 'info');
+    showFeedback('직전 작업을 되돌렸습니다.', 'info');
   };
 
-  // Remove player from a specific slot back to waiting pool
+  // Remove player from slot back to waiting pool
   const handleRemoveFromSlot = (team, slotIdx, e) => {
     if (e) e.stopPropagation();
     const player = team === 1 ? team1Slots[slotIdx] : team2Slots[slotIdx];
     if (!player) return;
 
+    setPickHistory(prev => [...prev, {
+      prevTeam1: [...team1Slots],
+      prevTeam2: [...team2Slots],
+    }]);
+
     if (team === 1) {
       setTeam1Slots(prev => {
         const next = [...prev];
@@ -284,52 +319,44 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
         return next;
       });
     }
-
-    setPool(prev => sortByHighestTier([...prev, player]));
   };
 
-  // Reset all assignments back to waiting pool
+  // Swap Teams: 1팀(블루)와 2팀(레드)의 팀원 전체를 맞바꿈
+  const handleSwapTeams = () => {
+    setPickHistory(prev => [...prev, {
+      prevTeam1: [...team1Slots],
+      prevTeam2: [...team2Slots],
+    }]);
+
+    const temp1 = [...team1Slots];
+    const temp2 = [...team2Slots];
+    setTeam1Slots(temp2);
+    setTeam2Slots(temp1);
+    showFeedback('1팀(블루)와 2팀(레드)의 팀원을 맞바꿨습니다.', 'info');
+  };
+
+  // Reset all assignments
   const handleResetAll = () => {
-    const all = [
-      ...pool,
-      ...team1Slots.filter(Boolean),
-      ...team2Slots.filter(Boolean),
-    ];
-    setPool(sortByHighestTier(all));
     setTeam1Slots([null, null, null, null, null]);
     setTeam2Slots([null, null, null, null, null]);
     setPickHistory([]);
-    setTeam1Side('BLUE');
-    showFeedback('🔄 모든 선수가 대기실로 복귀했습니다.', 'info');
+    showFeedback('모든 선수가 대기 상태로 복귀했습니다.', 'info');
   };
 
-  // AI Optimal Highest-Tier Balance Algorithm:
-  // Captain 1: highest tier #1, Captain 2: highest tier #2
-  // Then Snake-draft balance the rest according to 1-2-2-1-1-2-2-1 sequence!
+  // AI Tier Balance
   const handleBalanceTeam = () => {
-    const all = [
-      ...pool,
-      ...team1Slots.filter(Boolean),
-      ...team2Slots.filter(Boolean),
-    ];
-
-    if (all.length < 10) {
-      showFeedback('⚠️ 총 10명의 선수가 필요합니다.', 'warning');
+    if (rosterPlayers.length < 10) {
+      showFeedback('총 10명의 선수가 필요합니다.', 'warning');
       return;
     }
 
-    const tenPlayers = sortByHighestTier(all.slice(0, 10));
-
-    // Cap 1 = Rank 1, Cap 2 = Rank 2
+    const tenPlayers = sortByHighestTier(rosterPlayers.slice(0, 10));
     const cap1 = tenPlayers[0];
     const cap2 = tenPlayers[1];
-    const remaining = tenPlayers.slice(2); // 8 players
+    const remaining = tenPlayers.slice(2);
 
-    // We distribute 8 players to (4 for Team 1, 4 for Team 2) minimizing difference
     const tierScores = remaining.map(p => getTierScore(p.highestTier || p.currentTier));
-    const targetDiff = getTierScore(cap2.highestTier || cap2.currentTier) - getTierScore(cap1.highestTier || cap1.currentTier);
 
-    // 8 choose 4
     const combinations = (arr, k) => {
       const res = [];
       const comb = (start, chosen) => {
@@ -365,67 +392,81 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
     const t1Picks = bestCombo.map(i => remaining[i]);
     const t2Picks = [0, 1, 2, 3, 4, 5, 6, 7].filter(i => !bestCombo.includes(i)).map(i => remaining[i]);
 
-    // Sort team picks by highest tier
     const sortedT1Picks = sortByHighestTier(t1Picks);
     const sortedT2Picks = sortByHighestTier(t2Picks);
 
+    setPickHistory(prev => [...prev, {
+      prevTeam1: [...team1Slots],
+      prevTeam2: [...team2Slots],
+    }]);
+
     setTeam1Slots([cap1, sortedT1Picks[0], sortedT1Picks[1], sortedT1Picks[2], sortedT1Picks[3]]);
     setTeam2Slots([cap2, sortedT2Picks[0], sortedT2Picks[1], sortedT2Picks[2], sortedT2Picks[3]]);
-    setPool(all.slice(10));
-    setPickHistory([]);
-    showFeedback('👑 팀장 2명 및 1~4픽 최고 티어 최적 밸런스 배정 완료!', 'success');
+    showFeedback('최고 티어 기준 최적 밸런스로 배정되었습니다.', 'success');
   };
 
-  // Random 5:5 shuffle
+  // Random Shuffle
   const handleRandomShuffle = () => {
-    const all = [
-      ...pool,
-      ...team1Slots.filter(Boolean),
-      ...team2Slots.filter(Boolean),
-    ];
-    if (all.length < 10) {
-      showFeedback('⚠️ 총 10명의 선수가 필요합니다.', 'warning');
+    if (rosterPlayers.length < 10) {
+      showFeedback('총 10명의 선수가 필요합니다.', 'warning');
       return;
     }
-    const shuffled = [...all].sort(() => Math.random() - 0.5);
+    const shuffled = [...rosterPlayers].sort(() => Math.random() - 0.5);
+
+    setPickHistory(prev => [...prev, {
+      prevTeam1: [...team1Slots],
+      prevTeam2: [...team2Slots],
+    }]);
+
     setTeam1Slots(shuffled.slice(0, 5));
     setTeam2Slots(shuffled.slice(5, 10));
-    setPool(shuffled.slice(10));
-    setPickHistory([]);
-    showFeedback('🔀 무작위 5:5 셔플이 완료되었습니다!', 'success');
+    showFeedback('무작위 5:5 셔플이 완료되었습니다.', 'success');
   };
 
-  // Side Selection Helpers
-  const toggleTeamSides = () => {
-    setTeam1Side(prev => prev === 'BLUE' ? 'RED' : 'BLUE');
-  };
-
-  const handleCoinTossSide = () => {
-    const randomSide = Math.random() < 0.5 ? 'BLUE' : 'RED';
-    setTeam1Side(randomSide);
-    showFeedback(`🎲 코인 토스 결과: 1팀이 [${randomSide === 'BLUE' ? '🔵 블루' : '🔴 레드'}] 진영으로 결정되었습니다!`, 'success');
-  };
-
-  const team2Side = team1Side === 'BLUE' ? 'RED' : 'BLUE';
-
-  // Check if all 10 slots are filled
+  // Check if all slots filled
   const isAllFilled = team1Slots.every(Boolean) && team2Slots.every(Boolean);
 
-  // Submit and confirm match
+  // Generate copy string:
+  // 1팀(블루)\n이름1\n이름2\n이름3\n이름4\n이름5\n2팀(레드)\n이름1\n이름2\n이름3\n이름4\n이름5
+  const getTeamCopyText = () => {
+    const t1Names = team1Slots.map(p => (p ? p.name : '(미정)'));
+    const t2Names = team2Slots.map(p => (p ? p.name : '(미정)'));
+    return `1팀(블루)\n${t1Names.join('\n')}\n2팀(레드)\n${t2Names.join('\n')}`;
+  };
+
+  // Copy teams text to clipboard
+  const handleCopyTeams = async () => {
+    const text = getTeamCopyText();
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setIsCopied(true);
+      showFeedback('팀 명단이 클립보드에 복사되었습니다!', 'success');
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      showFeedback('복사에 실패했습니다.', 'error');
+    }
+  };
+
+  // Confirm and start match (1팀=블루, 2팀=레드 고정)
   const handleConfirmMatch = async () => {
     if (!isAllFilled) {
-      showFeedback('⚠️ 1팀과 2팀의 모든 슬롯(팀장 + 1~4픽)이 채워져야 매치를 확정할 수 있습니다.', 'warning');
+      showFeedback('1팀과 2팀 모두 5명씩 채워져야 매치를 시작할 수 있습니다.', 'warning');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const team1Names = team1Slots.map(p => p.name);
-      const team2Names = team2Slots.map(p => p.name);
-
-      // Map according to chosen side!
-      const blueTeamNames = team1Side === 'BLUE' ? team1Names : team2Names;
-      const redTeamNames = team1Side === 'BLUE' ? team2Names : team1Names;
+      const blueTeamNames = team1Slots.map(p => p.name);
+      const redTeamNames = team2Slots.map(p => p.name);
 
       const res = await fetch('/api/match/create', {
         method: 'POST',
@@ -440,28 +481,25 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '매치 생성에 실패했습니다.');
 
-      showFeedback(`🎉 매치 #${data.match.id} 생성 완료! (1팀: ${team1Side === 'BLUE' ? '블루' : '레드'}, 2팀: ${team2Side === 'BLUE' ? '블루' : '레드'})`, 'success');
-      
+      showFeedback(`매치 #${data.match.id} 생성 완료!`, 'success');
+
       if (onNavigateTab) {
         setTimeout(() => {
           onNavigateTab('matchup');
-        }, 1500);
+        }, 1200);
       }
     } catch (err) {
-      showFeedback(`❌ 오류: ${err.message}`, 'error');
+      showFeedback(`오류: ${err.message}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Sync draft teams to active lobby without starting match
+  // Sync draft teams to lobby
   const handleSyncToLobby = async () => {
     try {
-      const team1Names = team1Slots.filter(Boolean).map(p => p.name);
-      const team2Names = team2Slots.filter(Boolean).map(p => p.name);
-
-      const blueTeamNames = team1Side === 'BLUE' ? team1Names : team2Names;
-      const redTeamNames = team1Side === 'BLUE' ? team2Names : team1Names;
+      const blueTeamNames = team1Slots.filter(Boolean).map(p => p.name);
+      const redTeamNames = team2Slots.filter(Boolean).map(p => p.name);
 
       const res = await fetch('/api/lobby/teams', {
         method: 'POST',
@@ -475,9 +513,9 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '로비 동기화 실패');
 
-      showFeedback('✅ 대기열 현황과 구글 시트에 현재 팀 배정이 저장되었습니다!', 'success');
+      showFeedback('대기열 현황과 구글 시트에 현재 팀 배정이 저장되었습니다.', 'success');
     } catch (err) {
-      showFeedback(`⚠️ 동기화 실패: ${err.message}`, 'warning');
+      showFeedback(`동기화 실패: ${err.message}`, 'warning');
     }
   };
 
@@ -485,10 +523,10 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
     setStatusMessage({ text: msg, type });
     setTimeout(() => {
       setStatusMessage(null);
-    }, 4000);
+    }, 3000);
   };
 
-  // Calculate team average tier
+  // Calculate team averages
   const calcTeamAverageScore = (slots) => {
     const filled = slots.filter(Boolean);
     if (filled.length === 0) return 35;
@@ -501,13 +539,9 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
   const team1TierName = getScoreTierName(team1AvgScore);
   const team2TierName = getScoreTierName(team2AvgScore);
 
-  // Open modal for selecting 10 players
+  // Roster modal helpers
   const handleOpenRosterModal = () => {
-    const currentTenIds = [
-      ...pool,
-      ...team1Slots.filter(Boolean),
-      ...team2Slots.filter(Boolean),
-    ].map(p => p.id);
+    const currentTenIds = rosterPlayers.map(p => p.id);
     setSelectedRosterIds(currentTenIds);
     setIsRosterModalOpen(true);
   };
@@ -517,7 +551,7 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
       setSelectedRosterIds(prev => prev.filter(id => id !== playerId));
     } else {
       if (selectedRosterIds.length >= 10) {
-        showFeedback('⚠️ 최대 10명까지만 선택할 수 있습니다.', 'warning');
+        showFeedback('최대 10명까지만 선택할 수 있습니다.', 'warning');
         return;
       }
       setSelectedRosterIds(prev => [...prev, playerId]);
@@ -526,19 +560,19 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
 
   const handleApplyRoster = () => {
     if (selectedRosterIds.length !== 10) {
-      showFeedback('⚠️ 정확히 10명의 선수를 선택해 주세요.', 'warning');
+      showFeedback('정확히 10명의 선수를 선택해 주세요.', 'warning');
       return;
     }
 
     const candidateList = allPlayers && allPlayers.length > 0 ? allPlayers : DEFAULT_PLAYERS;
     const chosen = selectedRosterIds.map(id => candidateList.find(p => p.id === id)).filter(Boolean);
 
-    setPool(sortByHighestTier(chosen));
+    setRosterPlayers(sortByHighestTier(chosen));
     setTeam1Slots([null, null, null, null, null]);
     setTeam2Slots([null, null, null, null, null]);
     setPickHistory([]);
     setIsRosterModalOpen(false);
-    showFeedback('👥 선택한 10명의 선수가 대기실로 배치되었습니다!', 'success');
+    showFeedback('선택한 10명이 대기실로 배치되었습니다.', 'success');
   };
 
   const filteredAllPlayers = sortByHighestTier(
@@ -550,319 +584,210 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
     )
   );
 
+  // Count unassigned players
+  const unassignedCount = rosterPlayers.filter(p => !getPlayerAssignment(p)).length;
+
   return (
-    <div className="team-draft-page">
-      {/* Top Banner & Control Bar */}
-      <div className="page-title-section draft-title-section">
-        <div>
-          <h2 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <span>⚔️</span> 1팀 vs 2팀 스네이크 드래프트
-          </h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-            픽 순서: <strong>팀장 선출 ➔ 1팀 ➔ 2팀 ➔ 2팀 ➔ 1팀 ➔ 1팀 ➔ 2팀 ➔ 2팀 ➔ 1팀</strong> (블루/레드는 마지막에 결정)
-          </p>
+    <div className="team-draft-page compact-layout">
+      {/* Top Header & Action Bar */}
+      <div className="draft-top-bar">
+        <div className="draft-title-compact">
+          <h2>1팀(블루) vs 2팀(레드) 드래프트</h2>
         </div>
 
-        {/* Action Controls */}
-        <div className="draft-action-buttons">
+        <div className="draft-action-buttons compact-buttons">
           {pickHistory.length > 0 && (
-            <button className="draft-btn" onClick={handleUndoLastPick} title="직전 픽 취소">
-              ↩️ 직전 픽 취소
+            <button className="draft-btn sm" onClick={handleUndoLastPick} title="직전 작업 되돌리기">
+              되돌리기
             </button>
           )}
-          <button className="draft-btn" onClick={initDraftPool} title="대기열 현황 또는 기본 명단으로 재설정">
-            📥 로비 10명 불러오기
+          <button className="draft-btn sm" onClick={initDraftPool} title="로비 인원 또는 기본 명단으로 재설정">
+            로비 불러오기
           </button>
-          <button className="draft-btn" onClick={handleOpenRosterModal} title="DB에서 원하는 10명 선택">
-            👥 선수 교체 (10명)
+          <button className="draft-btn sm" onClick={handleOpenRosterModal} title="DB에서 10명 선택">
+            선수 교체
           </button>
-          <button className="draft-btn highlight-gold" onClick={handleBalanceTeam} title="팀장 2명 및 1~4픽 최고티어 최적 밸런스 배정">
-            ⚖️ AI 티어 밸런스 배정
+          <button className="draft-btn sm highlight-gold" onClick={handleBalanceTeam} title="최고티어 기준 AI 밸런스 배정">
+            AI 밸런스 배정
           </button>
-          <button className="draft-btn" onClick={handleRandomShuffle} title="무작위 5:5 셔플">
-            🔀 랜덤 셔플
+          <button className="draft-btn sm" onClick={handleRandomShuffle} title="랜덤 5:5 셔플">
+            랜덤 셔플
           </button>
-          <button className="draft-btn danger-btn" onClick={handleResetAll} title="모든 선수를 대기실로 복귀">
-            🔄 전체 초기화
+          <button className="draft-btn sm danger-btn" onClick={handleResetAll} title="대기실로 전체 복귀">
+            초기화
           </button>
         </div>
       </div>
 
-      {/* Alert Notification Toast */}
+      {/* Status Feedback Toast */}
       {statusMessage && (
-        <div className={`hex-card draft-toast ${statusMessage.type}`}>
+        <div className={`draft-toast-bar ${statusMessage.type}`}>
           <span>{statusMessage.text}</span>
         </div>
       )}
 
-      {/* DRAFT TURN & SEQUENCE TIMELINE */}
-      <div className="hex-card draft-sequence-container">
-        <div className="sequence-header-row">
-          <div className="current-turn-banner">
-            {currentTarget ? (
-              <div className={`turn-alert-box ${currentTarget.team === 1 ? 'team1-active' : 'team2-active'}`}>
-                <span className="pulsing-dot">●</span>
-                <span className="turn-step-badge">
-                  {currentTarget.type === 'CAPTAIN' ? '1단계: 팀장 선출' : `2단계: ${currentTarget.label}`}
-                </span>
-                <span className="turn-main-instruction">
-                  👉 <strong>{currentTarget.team === 1 ? '1팀' : '2팀'}</strong> ({currentTarget.type === 'CAPTAIN' ? '👑 팀장' : currentTarget.slotRole}) 선수를 아래 대기실에서 클릭하세요!
-                </span>
-              </div>
-            ) : (
-              <div className="turn-alert-box completed">
-                <span>🎉 <strong>10명 팀 배정 완료!</strong> 이제 아래에서 진영(블루/레드)을 확정하세요.</span>
-              </div>
-            )}
+      {/* Turn Indicator Strip */}
+      <div className="draft-turn-strip">
+        {currentTarget ? (
+          <div className={`turn-strip-content ${currentTarget.team === 1 ? 'team1-turn' : 'team2-turn'}`}>
+            <span className="turn-badge">
+              {currentTarget.type === 'CAPTAIN' ? '팀장 선출' : currentTarget.label}
+            </span>
+            <span className="turn-guide">
+              <strong>{currentTarget.team === 1 ? '1팀(블루)' : '2팀(레드)'}</strong> ({currentTarget.type === 'CAPTAIN' ? '팀장' : currentTarget.slotRole}) 선수를 아래 10명 명단에서 선택하거나 [1팀]/[2팀] 버튼을 누르세요.
+            </span>
           </div>
+        ) : (
+          <div className="turn-strip-content completed">
+            <span className="turn-badge done">배정 완료</span>
+            <span className="turn-guide">10명 팀 배정이 완료되었습니다! 가운데 [팀 복사] 칸에서 명단을 복사하세요.</span>
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 1: 10 Fixed Players (Table: 2 rows x 5 columns) */}
+      <div className="draft-pool-compact fixed-table-pool">
+        <div className="pool-strip-header">
+          <span className="pool-label">선수 명단 (2줄 5명 고정 / 대기: {unassignedCount}명)</span>
+          {currentTarget && unassignedCount > 0 && (
+            <span className="pool-subtext">카드를 클릭하면 현재 차례로 배정되며, 1팀/2팀 버튼으로 직접 지정할 수 있습니다.</span>
+          )}
         </div>
 
-        {/* 10-Step Visual Timeline Tiles */}
-        <div className="timeline-tiles-wrapper">
-          {/* Captain 1 */}
-          <div className={`timeline-tile ${team1Slots[0] ? 'done' : (!team1Slots[0] ? 'current' : '')}`}>
-            <span className="tile-step">C1</span>
-            <span className="tile-label">1팀 팀장</span>
-            <span className="tile-player">{team1Slots[0] ? team1Slots[0].name : '선택 중'}</span>
-          </div>
+        <div className="draft-roster-grid">
+          {rosterPlayers.map((player) => {
+            const tier = player.highestTier || player.currentTier || '언랭';
+            const tierColor = getTierColor(tier);
+            const assignment = getPlayerAssignment(player);
 
-          {/* Captain 2 */}
-          <div className={`timeline-tile ${team2Slots[0] ? 'done' : (team1Slots[0] && !team2Slots[0] ? 'current' : '')}`}>
-            <span className="tile-step">C2</span>
-            <span className="tile-label">2팀 팀장</span>
-            <span className="tile-player">{team2Slots[0] ? team2Slots[0].name : '대기'}</span>
-          </div>
-
-          <div className="timeline-divider" />
-
-          {/* 8 Snake Draft Steps */}
-          {DRAFT_SEQUENCE.map((seq) => {
-            const isFilled = seq.team === 1 ? !!team1Slots[seq.slotIndex] : !!team2Slots[seq.slotIndex];
-            const isCurrent = currentTarget?.step === seq.step;
-            const assignedPlayer = seq.team === 1 ? team1Slots[seq.slotIndex] : team2Slots[seq.slotIndex];
+            // 5 Lanes active status
+            const isTop = !!(player.lineTop || player.mainPosition === '탑');
+            const isJg = !!(player.lineJungle || player.mainPosition === '정글');
+            const isMid = !!(player.lineMid || player.mainPosition === '미드');
+            const isAd = !!(player.lineAd || player.mainPosition === '원딜');
+            const isSup = !!(player.lineSupport || player.mainPosition === '서폿');
 
             return (
               <div
-                key={seq.step}
-                className={`timeline-tile ${seq.team === 1 ? 'team1-tile' : 'team2-tile'} ${isFilled ? 'done' : ''} ${isCurrent ? 'current' : ''}`}
+                key={player.id}
+                className={`roster-table-card ${assignment ? (assignment.team === 1 ? 'assigned-t1' : 'assigned-t2') : 'unassigned'}`}
+                onClick={() => handlePlayerCardClick(player)}
+                title={assignment ? `${assignment.team}팀(${assignment.role}) 배정됨 (클릭 시 취소)` : (currentTarget ? `클릭 시 ${currentTarget.team === 1 ? '1팀(블루)' : '2팀(레드)'}으로 배정` : '')}
               >
-                <span className="tile-step">{seq.step}픽</span>
-                <span className="tile-label">{seq.label}</span>
-                <span className="tile-player">{assignedPlayer ? assignedPlayer.name : '-'}</span>
+                {/* 1행: 이름 / 최고티어 */}
+                <div className="card-row-top">
+                  <span className="card-player-name">{player.name}</span>
+                  <span className="card-sep">/</span>
+                  <span className="card-player-tier" style={{ color: tierColor }}>
+                    {tier}
+                  </span>
+                </div>
+
+                {/* 2행: 라인 [5개 다 적고 불켜기] */}
+                <div className="card-row-lanes">
+                  <span className={`lane-pill ${isTop ? 'on top-on' : 'off'}`}>탑</span>
+                  <span className={`lane-pill ${isJg ? 'on jg-on' : 'off'}`}>정글</span>
+                  <span className={`lane-pill ${isMid ? 'on mid-on' : 'off'}`}>미드</span>
+                  <span className={`lane-pill ${isAd ? 'on ad-on' : 'off'}`}>원딜</span>
+                  <span className={`lane-pill ${isSup ? 'on sup-on' : 'off'}`}>서폿</span>
+                </div>
+
+                {/* 3행: 1팀 2팀 버튼 or 배정 상태 */}
+                <div className="card-row-bottom">
+                  {!assignment ? (
+                    <div className="card-action-btns">
+                      <button
+                        className="card-team-btn btn-t1"
+                        onClick={(e) => handleAssignToTeam(player, 1, e)}
+                        disabled={team1Slots.every(Boolean)}
+                        title="1팀(블루) 빈 슬롯으로 배정"
+                      >
+                        1팀
+                      </button>
+                      <button
+                        className="card-team-btn btn-t2"
+                        onClick={(e) => handleAssignToTeam(player, 2, e)}
+                        disabled={team2Slots.every(Boolean)}
+                        title="2팀(레드) 빈 슬롯으로 배정"
+                      >
+                        2팀
+                      </button>
+                    </div>
+                  ) : (
+                    <div className={`card-assigned-status ${assignment.team === 1 ? 'status-t1' : 'status-t2'}`}>
+                      <span className="assigned-badge">
+                        {assignment.team === 1 ? '1팀' : '2팀'} ({assignment.role})
+                      </span>
+                      <button
+                        className="card-cancel-x"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveFromSlot(assignment.team, assignment.slotIdx, e);
+                        }}
+                        title="배정 취소"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* SECTION 1: 10 PLAYERS WAITING POOL (UNASSIGNED) */}
-      <div className="hex-card draft-pool-card">
-        <div className="draft-pool-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <h3 style={{ color: 'var(--gold-primary)', fontSize: '1.15rem' }}>
-              👤 선수 대기실 ({pool.length}명)
-            </h3>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              {currentTarget ? (
-                `클릭하면 [${currentTarget.team === 1 ? '1팀' : '2팀'} ${currentTarget.type === 'CAPTAIN' ? '팀장' : currentTarget.slotRole}] 슬롯으로 바로 들어갑니다.`
-              ) : (
-                '모든 선수가 배정되었습니다.'
-              )}
-            </span>
+      {/* SECTION 2: 1팀(블루) vs Center Control vs 2팀(레드) */}
+      <div className="draft-main-grid">
+        {/* TEAM 1 (BLUE) */}
+        <div className="team-compact-card team1-card">
+          <div className="team-compact-header header-blue">
+            <div className="team-name-tag">
+              <span className="team-side-tag blue-tag">1팀 (블루)</span>
+              <span className="team-count">({team1Slots.filter(Boolean).length}/5)</span>
+            </div>
+            <span className="team-avg">평균: {team1TierName}</span>
           </div>
-          {pool.length > 0 && (
-            <span className="pool-count-badge">대기 {pool.length}명</span>
-          )}
-        </div>
 
-        {pool.length > 0 ? (
-          <div className="players-icon-grid">
-            {pool.map((player, idx) => {
-              const highestTier = player.highestTier || player.currentTier || '언랭';
-              const tierColor = getTierColor(highestTier);
-              const avatarSrc = getAvatarUrl(player.name, idx);
+          <div className="team-compact-slots">
+            {SLOT_ROLES.map((role, idx) => {
+              const player = team1Slots[idx];
+              const isTarget = currentTarget?.team === 1 && currentTarget?.slotIndex === idx;
+              const playerTier = player ? (player.highestTier || player.currentTier || '언랭') : '';
+              const playerColor = player ? getTierColor(playerTier) : '#a09c90';
+              const posText = player ? getPlayerPositionText(player) : '';
+              const posColor = player ? getPositionColor(posText) : '#8ea2b4';
 
               return (
                 <div
-                  key={player.id || idx}
-                  className="player-icon-card"
-                  onClick={() => handlePlayerClick(player)}
-                  title={currentTarget ? `클릭 시 ${currentTarget.team === 1 ? '1팀' : '2팀'}으로 배정` : '배정 완료'}
+                  key={`t1-${idx}`}
+                  className={`compact-slot-row ${player ? 'filled' : 'empty'} ${isTarget ? 'target' : ''}`}
+                  onClick={() => player && handleRemoveFromSlot(1, idx)}
+                  title={player ? '클릭 시 대기실로 복귀' : (isTarget ? '현재 선택할 차례입니다' : '')}
                 >
-                  {/* Top Avatar with Tier Border */}
-                  <div className="icon-avatar-wrapper" style={{ borderColor: tierColor, boxShadow: `0 0 12px ${tierColor}50` }}>
-                    <img
-                      src={avatarSrc}
-                      alt={player.name}
-                      className="icon-avatar-img"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                        e.target.nextSibling.style.display = 'flex';
-                      }}
-                    />
-                    <div className="avatar-fallback" style={{ display: 'none', backgroundColor: tierColor }}>
-                      {player.name ? player.name.slice(0, 1) : 'P'}
-                    </div>
-                  </div>
-
-                  {/* Player Names & Meta */}
-                  <div className="icon-player-info">
-                    <span className="icon-player-name">{player.name}</span>
-                    <span className="icon-player-nick">{player.nickname?.split('#')[0] || player.nickname}</span>
-                    
-                    {/* Highest Tier Badge */}
-                    <div style={{ marginBottom: '0.35rem' }}>
-                      <span
-                        className="icon-tier-badge"
-                        style={{
-                          color: tierColor,
-                          borderColor: `${tierColor}80`,
-                          fontWeight: '800',
-                          fontSize: '0.75rem',
-                          background: 'rgba(0,0,0,0.4)',
-                          padding: '2px 7px'
-                        }}
-                      >
-                        👑 {highestTier}
-                      </span>
-                    </div>
-
-                    {player.currentTier && player.currentTier !== highestTier && (
-                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
-                        현: {player.currentTier}
-                      </span>
-                    )}
-
-                    {/* Lane Dots */}
-                    <div className="icon-lane-dots">
-                      <span className={`lane-mini ${player.lineTop ? 'on' : ''}`}>T</span>
-                      <span className={`lane-mini ${player.lineJungle ? 'on' : ''}`}>J</span>
-                      <span className={`lane-mini ${player.lineMid ? 'on' : ''}`}>M</span>
-                      <span className={`lane-mini ${player.lineAd ? 'on' : ''}`}>A</span>
-                      <span className={`lane-mini ${player.lineSupport ? 'on' : ''}`}>S</span>
-                    </div>
-                  </div>
-
-                  {/* Quick Pick Buttons */}
-                  <div className="icon-card-actions">
-                    <button
-                      className="mini-move-btn team1-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // Find first empty slot in team 1
-                        const emptyIdx = team1Slots.findIndex(s => s === null);
-                        if (emptyIdx === -1) {
-                          showFeedback('1팀 슬롯이 가득 찼습니다.', 'warning');
-                          return;
-                        }
-                        assignPlayerToSlot(player, 1, emptyIdx);
-                      }}
-                      title="1팀의 다음 빈 슬롯으로 배정"
-                      disabled={team1Slots.every(Boolean)}
-                    >
-                      1팀 배정
-                    </button>
-                    <button
-                      className="mini-move-btn team2-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // Find first empty slot in team 2
-                        const emptyIdx = team2Slots.findIndex(s => s === null);
-                        if (emptyIdx === -1) {
-                          showFeedback('2팀 슬롯이 가득 찼습니다.', 'warning');
-                          return;
-                        }
-                        assignPlayerToSlot(player, 2, emptyIdx);
-                      }}
-                      title="2팀의 다음 빈 슬롯으로 배정"
-                      disabled={team2Slots.every(Boolean)}
-                    >
-                      2팀 배정
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="pool-empty-placeholder">
-            <span>🎉 모든 선수가 1팀과 2팀에 배정되었습니다!</span>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              선수를 다시 빼내려면 아래 팀 슬롯에서 선수 카드를 클릭하세요.
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* SECTION 2: 1팀 vs 2팀 SLOTS CONTAINER */}
-      <div className="teams-battle-container">
-        {/* TEAM 1 (1팀) */}
-        <div className={`hex-card team-panel team1-panel ${team1Side === 'BLUE' ? 'side-blue-border' : 'side-red-border'}`}>
-          <div className="team-panel-header">
-            <div className="team-title-row">
-              <span className="team-side-indicator" style={{ color: team1Side === 'BLUE' ? 'var(--blue-primary)' : 'var(--red-primary)' }}>
-                {team1Side === 'BLUE' ? '🔵 블루' : '🔴 레드'}
-              </span>
-              <h3>1팀</h3>
-              <span className="team-slot-badge">{team1Slots.filter(Boolean).length} / 5</span>
-            </div>
-            <div className="team-stats-summary">
-              <span>평균 최고티어: <strong>{team1TierName}</strong></span>
-            </div>
-          </div>
-
-          <div className="team-slots-list">
-            {SLOT_ROLES.map((role, slotIdx) => {
-              const player = team1Slots[slotIdx];
-              const roleIcon = SLOT_ICONS[role];
-              const playerHighest = player ? (player.highestTier || player.currentTier || '언랭') : '';
-              const playerColor = player ? getTierColor(playerHighest) : '#a09c90';
-              const isTargetSlot = currentTarget?.team === 1 && currentTarget?.slotIndex === slotIdx;
-
-              return (
-                <div
-                  key={`t1-${slotIdx}`}
-                  className={`team-slot-item ${player ? 'filled' : 'empty'} ${isTargetSlot ? 'active-target-slot' : ''}`}
-                  onClick={() => player && handleRemoveFromSlot(1, slotIdx)}
-                  title={player ? '클릭 시 대기실로 복귀' : (isTargetSlot ? '현재 픽 대상 슬롯입니다' : '대기')}
-                >
-                  <div className="slot-pos-badge" title={role}>
-                    <span className="pos-icon">{roleIcon}</span>
-                    <span className="pos-name">{role}</span>
-                  </div>
+                  <span className="slot-role-label">{role}</span>
 
                   {player ? (
-                    <div className="slot-player-content">
-                      <div className="slot-player-avatar" style={{ borderColor: playerColor }}>
-                        <img src={getAvatarUrl(player.name, slotIdx)} alt="" />
-                      </div>
-                      <div className="slot-player-details">
-                        <div className="slot-name-row">
-                          <span className="slot-player-name">{player.name}</span>
-                          <span className="slot-player-tier" style={{ color: playerColor, fontWeight: '800' }}>
-                            👑 {playerHighest}
-                          </span>
-                        </div>
-                        <span className="slot-player-nick">{player.nickname}</span>
-                      </div>
-
-                      {/* Hover action to remove */}
-                      <div className="slot-hover-actions">
-                        <button
-                          className="slot-action-btn remove-btn"
-                          onClick={(e) => handleRemoveFromSlot(1, slotIdx, e)}
-                          title="대기실로 복귀"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                    <div className="slot-player-box">
+                      <span className="slot-name">{player.name}</span>
+                      <span className="slot-pos" style={{ color: posColor, borderColor: `${posColor}50` }}>
+                        {posText}
+                      </span>
+                      <span className="slot-tier" style={{ color: playerColor }}>
+                        {playerTier}
+                      </span>
+                      <button
+                        className="slot-del-btn"
+                        onClick={(e) => handleRemoveFromSlot(1, idx, e)}
+                        title="대기실로 복귀"
+                      >
+                        ✕
+                      </button>
                     </div>
                   ) : (
-                    <div className="slot-empty-content">
-                      <span style={{ color: isTargetSlot ? 'var(--gold-primary)' : 'var(--text-muted)' }}>
-                        {isTargetSlot ? '👉 지금 이 슬롯을 선택할 차례!' : `${role} 슬롯 대기 중...`}
-                      </span>
-                    </div>
+                    <span className="slot-placeholder">
+                      {isTarget ? '👉 선택 차례' : '대기'}
+                    </span>
                   )}
                 </div>
               );
@@ -870,138 +795,107 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
           </div>
         </div>
 
-        {/* CENTER VERSUS & FINAL SIDE SELECTION */}
-        <div className="center-versus-panel">
-          <div className="versus-badge">VS</div>
+        {/* CENTER CONTROLS & COPY BOX */}
+        <div className="center-compact-control">
+          {/* Swap Teams Button */}
+          <button
+            className="draft-btn swap-teams-btn"
+            onClick={handleSwapTeams}
+            title="1팀(블루)과 2팀(레드)의 선수 전체를 맞바꿉니다."
+          >
+            팀 바꾸기 (1팀 ↔ 2팀 맞교체)
+          </button>
 
-          {/* SIDE SELECTION (블루/레드는 맨 마지막에 정하기) */}
-          <div className="hex-card final-side-selection-card">
-            <h4 style={{ color: 'var(--gold-primary)', fontSize: '0.95rem', marginBottom: '0.6rem', textAlign: 'center' }}>
-              🛡️ 진영 선택 (블루 / 레드)
-            </h4>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.9rem' }}>
-              팀을 다 짠 후 1팀과 2팀의 진영을 최종 결정하세요.
-            </p>
-
-            <div className="side-matchup-visual">
-              <div className={`side-badge-pill ${team1Side === 'BLUE' ? 'blue-side-pill' : 'red-side-pill'}`}>
-                <span>1팀: {team1Side === 'BLUE' ? '🔵 블루' : '🔴 레드'}</span>
-              </div>
-              <span style={{ fontWeight: '800', color: 'var(--text-muted)' }}>VS</span>
-              <div className={`side-badge-pill ${team2Side === 'BLUE' ? 'blue-side-pill' : 'red-side-pill'}`}>
-                <span>2팀: {team2Side === 'BLUE' ? '🔵 블루' : '🔴 레드'}</span>
-              </div>
+          {/* Copy Teams Box: 항상 제공되며 10명 다 뽑았을 때 완벽하게 복사 가능 */}
+          <div className="team-copy-container">
+            <div className="copy-header-row">
+              <button
+                className={`btn-copy-action ${isCopied ? 'copied' : ''}`}
+                onClick={handleCopyTeams}
+              >
+                {isCopied ? '[팀 복사 완료!]' : '[팀 복사]'}
+              </button>
+              <span className="copy-hint">
+                {isAllFilled ? '10명 배정 완료 (복사 가능)' : `배정 중 (${team1Slots.filter(Boolean).length + team2Slots.filter(Boolean).length}/10)`}
+              </span>
             </div>
 
-            <div className="side-action-btn-row">
-              <button
-                className="btn-side-toggle"
-                onClick={toggleTeamSides}
-                title="1팀과 2팀의 블루/레드 진영을 서로 맞바꿉니다."
-              >
-                🔄 진영 맞바꾸기
-              </button>
-              <button
-                className="btn-side-toggle"
-                onClick={handleCoinTossSide}
-                title="50% 확률로 1팀의 진영을 랜덤 추첨합니다."
-              >
-                🎲 코인 토스 추첨
-              </button>
-            </div>
+            <textarea
+              className="team-copy-textarea"
+              readOnly
+              rows={12}
+              value={getTeamCopyText()}
+              onClick={(e) => e.target.select()}
+              title="클릭 시 전체 선택됩니다."
+            />
           </div>
 
-          {/* Final Match Creation Button */}
-          <div className="draft-submit-box">
+          {/* Match Confirm & Lobby Sync */}
+          <div className="center-actions-bottom">
             <button
-              className={`btn-confirm-match ${isAllFilled ? 'ready' : 'disabled'}`}
+              className={`btn-match-start ${isAllFilled ? 'ready' : 'disabled'}`}
               disabled={!isAllFilled || isSubmitting}
               onClick={handleConfirmMatch}
             >
-              {isSubmitting ? (
-                '⏳ 매치 생성 중...'
-              ) : isAllFilled ? (
-                '⚔️ 팀 & 진영 확정 ➔ 매치 시작!'
-              ) : (
-                `드래프트 진행 중 (${team1Slots.filter(Boolean).length + team2Slots.filter(Boolean).length}/10)`
-              )}
+              {isSubmitting ? '매치 생성 중...' : isAllFilled ? '매치 시작' : '팀 배정 진행 중'}
             </button>
-
             {lobby && (
-              <button className="btn-sync-lobby" onClick={handleSyncToLobby}>
-                📋 대기열/구글 시트에 팀 임시 저장
+              <button className="draft-btn sm" onClick={handleSyncToLobby} title="현재 팀 배정을 로비 및 구글 시트에 저장">
+                로비 동기화
               </button>
             )}
           </div>
         </div>
 
-        {/* TEAM 2 (2팀) */}
-        <div className={`hex-card team-panel team2-panel ${team2Side === 'BLUE' ? 'side-blue-border' : 'side-red-border'}`}>
-          <div className="team-panel-header">
-            <div className="team-title-row">
-              <span className="team-side-indicator" style={{ color: team2Side === 'BLUE' ? 'var(--blue-primary)' : 'var(--red-primary)' }}>
-                {team2Side === 'BLUE' ? '🔵 블루' : '🔴 레드'}
-              </span>
-              <h3>2팀</h3>
-              <span className="team-slot-badge">{team2Slots.filter(Boolean).length} / 5</span>
+        {/* TEAM 2 (RED) */}
+        <div className="team-compact-card team2-card">
+          <div className="team-compact-header header-red">
+            <div className="team-name-tag">
+              <span className="team-side-tag red-tag">2팀 (레드)</span>
+              <span className="team-count">({team2Slots.filter(Boolean).length}/5)</span>
             </div>
-            <div className="team-stats-summary">
-              <span>평균 최고티어: <strong>{team2TierName}</strong></span>
-            </div>
+            <span className="team-avg">평균: {team2TierName}</span>
           </div>
 
-          <div className="team-slots-list">
-            {SLOT_ROLES.map((role, slotIdx) => {
-              const player = team2Slots[slotIdx];
-              const roleIcon = SLOT_ICONS[role];
-              const playerHighest = player ? (player.highestTier || player.currentTier || '언랭') : '';
-              const playerColor = player ? getTierColor(playerHighest) : '#a09c90';
-              const isTargetSlot = currentTarget?.team === 2 && currentTarget?.slotIndex === slotIdx;
+          <div className="team-compact-slots">
+            {SLOT_ROLES.map((role, idx) => {
+              const player = team2Slots[idx];
+              const isTarget = currentTarget?.team === 2 && currentTarget?.slotIndex === idx;
+              const playerTier = player ? (player.highestTier || player.currentTier || '언랭') : '';
+              const playerColor = player ? getTierColor(playerTier) : '#a09c90';
+              const posText = player ? getPlayerPositionText(player) : '';
+              const posColor = player ? getPositionColor(posText) : '#8ea2b4';
 
               return (
                 <div
-                  key={`t2-${slotIdx}`}
-                  className={`team-slot-item ${player ? 'filled' : 'empty'} ${isTargetSlot ? 'active-target-slot' : ''}`}
-                  onClick={() => player && handleRemoveFromSlot(2, slotIdx)}
-                  title={player ? '클릭 시 대기실로 복귀' : (isTargetSlot ? '현재 픽 대상 슬롯입니다' : '대기')}
+                  key={`t2-${idx}`}
+                  className={`compact-slot-row ${player ? 'filled' : 'empty'} ${isTarget ? 'target' : ''}`}
+                  onClick={() => player && handleRemoveFromSlot(2, idx)}
+                  title={player ? '클릭 시 대기실로 복귀' : (isTarget ? '현재 선택할 차례입니다' : '')}
                 >
-                  <div className="slot-pos-badge" title={role}>
-                    <span className="pos-icon">{roleIcon}</span>
-                    <span className="pos-name">{role}</span>
-                  </div>
+                  <span className="slot-role-label">{role}</span>
 
                   {player ? (
-                    <div className="slot-player-content">
-                      <div className="slot-player-avatar" style={{ borderColor: playerColor }}>
-                        <img src={getAvatarUrl(player.name, slotIdx + 5)} alt="" />
-                      </div>
-                      <div className="slot-player-details">
-                        <div className="slot-name-row">
-                          <span className="slot-player-name">{player.name}</span>
-                          <span className="slot-player-tier" style={{ color: playerColor, fontWeight: '800' }}>
-                            👑 {playerHighest}
-                          </span>
-                        </div>
-                        <span className="slot-player-nick">{player.nickname}</span>
-                      </div>
-
-                      {/* Hover action to remove */}
-                      <div className="slot-hover-actions">
-                        <button
-                          className="slot-action-btn remove-btn"
-                          onClick={(e) => handleRemoveFromSlot(2, slotIdx, e)}
-                          title="대기실로 복귀"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                    <div className="slot-player-box">
+                      <span className="slot-name">{player.name}</span>
+                      <span className="slot-pos" style={{ color: posColor, borderColor: `${posColor}50` }}>
+                        {posText}
+                      </span>
+                      <span className="slot-tier" style={{ color: playerColor }}>
+                        {playerTier}
+                      </span>
+                      <button
+                        className="slot-del-btn"
+                        onClick={(e) => handleRemoveFromSlot(2, idx, e)}
+                        title="대기실로 복귀"
+                      >
+                        ✕
+                      </button>
                     </div>
                   ) : (
-                    <div className="slot-empty-content">
-                      <span style={{ color: isTargetSlot ? 'var(--gold-primary)' : 'var(--text-muted)' }}>
-                        {isTargetSlot ? '👉 지금 이 슬롯을 선택할 차례!' : `${role} 슬롯 대기 중...`}
-                      </span>
-                    </div>
+                    <span className="slot-placeholder">
+                      {isTarget ? '👉 선택 차례' : '대기'}
+                    </span>
                   )}
                 </div>
               );
@@ -1010,19 +904,19 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
         </div>
       </div>
 
-      {/* ROSTER SELECTION MODAL */}
+      {/* ROSTER MODAL (10 Players from DB) */}
       {isRosterModalOpen && (
         <div className="modal-backdrop" onClick={() => setIsRosterModalOpen(false)}>
           <div className="hex-card roster-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>👥 내전 참가 소환사 10명 선택 ({selectedRosterIds.length}/10)</h3>
+              <h3>선수 10명 선택 ({selectedRosterIds.length}/10)</h3>
               <button className="modal-close-btn" onClick={() => setIsRosterModalOpen(false)}>✕</button>
             </div>
 
             <div className="modal-search-bar">
               <input
                 type="text"
-                placeholder="🔎 이름, 닉네임, 최고티어 검색..."
+                placeholder="이름, 닉네임, 최고티어 검색..."
                 className="password-input"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -1034,6 +928,8 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
                 const isSelected = selectedRosterIds.includes(p.id);
                 const highestTier = p.highestTier || p.currentTier || '언랭';
                 const tierColor = getTierColor(highestTier);
+                const posText = getPlayerPositionText(p);
+                const posColor = getPositionColor(posText);
 
                 return (
                   <div
@@ -1048,12 +944,10 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
                       className="roster-checkbox"
                     />
                     <span className="roster-name">{p.name}</span>
+                    <span className="roster-pos" style={{ color: posColor }}>{posText}</span>
                     <span className="roster-nick">{p.nickname}</span>
-                    <span className="roster-tier" style={{ color: tierColor, fontWeight: '800' }}>
-                      👑 {highestTier}
-                    </span>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', width: '80px', textAlign: 'right' }}>
-                      {p.currentTier ? `현: ${p.currentTier}` : ''}
+                    <span className="roster-tier" style={{ color: tierColor, fontWeight: '700' }}>
+                      {highestTier}
                     </span>
                   </div>
                 );
@@ -1062,18 +956,18 @@ function TeamDraft({ lobby, allPlayers, onNavigateTab }) {
 
             <div className="modal-footer">
               <span style={{ fontSize: '0.85rem', color: selectedRosterIds.length === 10 ? 'var(--gold-primary)' : 'var(--text-muted)' }}>
-                {selectedRosterIds.length === 10 ? '✅ 10명이 정확히 선택되었습니다.' : `10명을 맞춰주세요 (현재 ${selectedRosterIds.length}명)`}
+                {selectedRosterIds.length === 10 ? '10명이 선택되었습니다.' : `10명을 맞춰주세요 (현재 ${selectedRosterIds.length}명)`}
               </span>
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <button className="draft-btn" onClick={() => setIsRosterModalOpen(false)}>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="draft-btn sm" onClick={() => setIsRosterModalOpen(false)}>
                   취소
                 </button>
                 <button
-                  className="draft-btn highlight-gold"
+                  className="draft-btn sm highlight-gold"
                   disabled={selectedRosterIds.length !== 10}
                   onClick={handleApplyRoster}
                 >
-                  선택한 10명 적용
+                  10명 적용
                 </button>
               </div>
             </div>
