@@ -5,6 +5,7 @@ import TeamDraft from './pages/TeamDraft';
 import Leaderboard from './pages/Leaderboard';
 import Matchup from './pages/Matchup';
 import VoiceUsage from './pages/VoiceUsage';
+import MusicPlayer from './pages/MusicPlayer';
 
 // Socket connection
 const socket = io();
@@ -110,6 +111,12 @@ function App() {
           >
             음성 활동량
           </button>
+          <button 
+            className={`nav-link ${activeTab === 'music' ? 'active' : ''}`}
+            onClick={() => setActiveTab('music')}
+          >
+            🎵 음악 플레이어
+          </button>
         </nav>
       </header>
 
@@ -169,6 +176,12 @@ function App() {
           >
             <span className="sidebar-icon">🎙️</span> 음성 활동량
           </button>
+          <button 
+            className={`sidebar-link ${activeTab === 'music' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('music'); setIsSidebarOpen(false); }}
+          >
+            <span className="sidebar-icon">🎵</span> 음악 플레이어
+          </button>
         </nav>
 
         <div className="sidebar-footer">
@@ -192,6 +205,9 @@ function App() {
         )}
         {activeTab === 'voice' && (
           <VoiceUsage />
+        )}
+        {activeTab === 'music' && (
+          <MusicPlayer socket={socket} />
         )}
       </main>
     </div>

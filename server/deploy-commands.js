@@ -47,7 +47,18 @@ const commands = [
         .addChoices(
           { name: '내 계정 갱신', value: 'me' },
           { name: '전체 유저 갱신 (관리자)', value: 'all' },
-        ))
+        )),
+  new SlashCommandBuilder()
+    .setName('음악세팅')
+    .setDescription('현재 채널에 고정될 음악 플레이어 Embed와 컨트롤 버튼을 생성합니다.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+  new SlashCommandBuilder()
+    .setName('재생')
+    .setDescription('유튜브에서 음원을 검색해 대기열에 추가하고 재생합니다.')
+    .addStringOption(opt =>
+      opt.setName('검색어')
+        .setDescription('유튜브 검색어 또는 영상 링크(URL)')
+        .setRequired(true))
 ].map(command => command.toJSON());
 
 async function deployCommands() {

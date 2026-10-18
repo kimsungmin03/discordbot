@@ -23,6 +23,8 @@ const prisma = new PrismaClient();
 import cron from 'node-cron';
 import { updateParticipants, syncPlayerToSheet, syncAllPlayersToSheet } from './googleSheets.js';
 import { fetchFullRiotInfo, getAccountByRiotId, getAccountByPuuid, getTierByPuuid, sanitizeTier } from './riotApi.js';
+import { musicManager } from './music/musicManager.js';
+import { handleMusicInteraction } from './music/musicBotModule.js';
 let discordClient = null;
 let ioInstance = null; // Socket.io server instance for broadcasting updates
 const activeVoiceSessions = new Map(); // Map<userId, { joinTime, channelId, channelName }>
@@ -290,6 +292,7 @@ export async function performWeeklyTierSync(progressCallback = null) {
 
 export async function initBot(io) {
   ioInstance = io;
+  musicManager.init(null, ioInstance);
 
   discordClient = new Client({
     intents: [
@@ -300,6 +303,7 @@ export async function initBot(io) {
 
   discordClient.once('clientReady', () => {
     console.log(`🤖 Discord Bot inside Express is ready! Logged in as ${discordClient.user.tag}`);
+    musicManager.init(discordClient, ioInstance);
 
     // Startup Sync: cache already connected voice users
     try {
@@ -341,6 +345,14 @@ export async function initBot(io) {
   });
 
   discordClient.on('interactionCreate', async (interaction) => {
+    try {
+      const handledByMusic = await handleMusicInteraction(interaction);
+      if (handledByMusic) return;
+    } catch (musicErr) {
+      console.error('❌ [Music] Error handling music interaction:', musicErr);
+      return;
+    }
+
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === '내전모집') {
         try {

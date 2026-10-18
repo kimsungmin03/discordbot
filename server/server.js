@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { initBot } from './bot.js';
 import { updateTeamsToSheet } from './googleSheets.js';
+import { musicRouter } from './music/musicRouter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -492,6 +493,9 @@ app.post('/api/match/resolve', async (req, res) => {
   }
 });
 
+// API: Music Player endpoints
+app.use('/api/music', musicRouter);
+
 // Serve frontend route fallback (SPA routing)
 if (fs.existsSync(publicPath)) {
   app.get('*', (req, res) => {
@@ -502,6 +506,11 @@ if (fs.existsSync(publicPath)) {
 // Websockets
 io.on('connection', (socket) => {
   console.log('📡 Web client connected to WebSockets:', socket.id);
+  socket.on('joinMusicGuild', (guildId) => {
+    if (guildId) {
+      socket.join(`music:${guildId}`);
+    }
+  });
   socket.on('disconnect', () => {
     console.log('📡 Web client disconnected:', socket.id);
   });
