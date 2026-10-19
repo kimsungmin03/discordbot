@@ -9,9 +9,16 @@ import {
 } from '@discordjs/voice';
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import play from 'play-dl';
+import youtubedl from 'youtube-dl-exec';
+import ffmpegPath from 'ffmpeg-static';
+import { PassThrough } from 'stream';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+if (ffmpegPath && !process.env.FFMPEG_PATH) {
+  process.env.FFMPEG_PATH = ffmpegPath;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +43,7 @@ export class GuildMusicState {
     this.loopMode = 'OFF'; // 'OFF' | 'TRACK' | 'QUEUE'
     this.volume = 100; // 0 ~ 200 (%)
     this.currentResource = null;
+    this.currentStreamProcess = null;
 
     // @discordjs/voice AudioPlayer 생성
     this.audioPlayer = createAudioPlayer({
@@ -135,9 +143,103 @@ export class GuildMusicState {
   }
 
   /**
+   * 실행 중인 yt-dlp 스트리밍 프로세스 정리
+   */
+  killCurrentStreamProcess() {
+    if (this.currentStreamProcess) {
+      try {
+        this.currentStreamProcess.kill();
+      } catch {
+        // 프로세스가 이미 종료된 경우 무시
+      }
+      this.currentStreamProcess = null;
+    }
+  }
+
+  /**
+   * yt-dlp를 통해 오디오 스트림(PassThrough)을 생성
+   */
+  createYtDlpStream(url) {
+    this.killCurrentStreamProcess();
+
+    return new Promise((resolve, reject) => {
+      const passThrough = new PassThrough({ highWaterMark: 1 << 20 });
+      const proc = youtubedl.exec(
+        url,
+        {
+          output: '-',
+          quiet: true,
+          format: 'bestaudio[acodec=opus]/bestaudio/best',
+          noPlaylist: true,
+          noCheckCertificates: true,
+          noWarnings: true,
+          jsRuntimes: 'node',
+        },
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+
+      this.currentStreamProcess = proc;
+
+      let settled = false;
+      let stderrData = '';
+
+      proc.catch(() => {
+        // close/error 이벤트에서 처리하므로 UnhandledRejection 방지
+      });
+
+      if (proc.stderr) {
+        proc.stderr.on('data', (chunk) => {
+          stderrData += chunk.toString();
+        });
+        proc.stderr.on('error', () => {});
+      }
+
+      if (!proc.stdout) {
+        this.killCurrentStreamProcess();
+        return reject(new Error('yt-dlp stdout 스트림을 열지 못했습니다.'));
+      }
+
+      proc.stdout.on('error', () => {});
+      passThrough.on('error', () => {});
+
+      proc.stdout.once('data', (firstChunk) => {
+        if (!settled) {
+          settled = true;
+          passThrough.write(firstChunk);
+          proc.stdout.pipe(passThrough);
+          resolve(passThrough);
+        }
+      });
+
+      proc.on('error', (err) => {
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+        passThrough.end();
+      });
+
+      proc.on('close', (code) => {
+        if (this.currentStreamProcess === proc) {
+          this.currentStreamProcess = null;
+        }
+        if (!settled) {
+          settled = true;
+          const errMsg =
+            stderrData.trim().split('\n').pop() || `yt-dlp 프로세스가 종료되었습니다 (code: ${code})`;
+          reject(new Error(errMsg));
+        }
+        passThrough.end();
+      });
+    });
+  }
+
+  /**
    * 대기열의 첫 번째 곡을 꺼내 스트리밍 시작
    */
   async playNext() {
+    this.killCurrentStreamProcess();
+
     if (this.queue.length === 0) {
       this.currentTrack = null;
       this.currentResource = null;
@@ -154,9 +256,8 @@ export class GuildMusicState {
     }
 
     try {
-      const stream = await play.stream(this.currentTrack.url);
-      const resource = createAudioResource(stream.stream, {
-        inputType: stream.type,
+      const audioStream = await this.createYtDlpStream(this.currentTrack.url);
+      const resource = createAudioResource(audioStream, {
         inlineVolume: true,
       });
       resource.volume.setVolume(this.volume / 100);
@@ -183,6 +284,7 @@ export class GuildMusicState {
   }
 
   async skip() {
+    this.killCurrentStreamProcess();
     if (!this.connection) {
       await this.playNext();
       return;
@@ -198,6 +300,7 @@ export class GuildMusicState {
   }
 
   async stop(disconnect = false) {
+    this.killCurrentStreamProcess();
     this.queue = [];
     this.currentTrack = null;
     this.currentResource = null;
@@ -447,27 +550,64 @@ class MusicManager {
    * 유튜브 검색어 또는 URL로 음원 정보를 조회하여 표준 Track 객체로 반환
    */
   async searchTrack(query, requester = '알 수 없음') {
-    let videoInfo = null;
+    try {
+      let videoInfo = null;
 
-    if (play.yt_validate(query) === 'video' && query.startsWith('http')) {
-      const info = await play.video_basic_info(query);
-      videoInfo = info.video_details;
-    } else {
-      const results = await play.search(query, { source: { youtube: 'video' }, limit: 1 });
-      if (!results || results.length === 0) {
-        throw new Error('검색 결과가 없습니다.');
+      if (play.yt_validate(query) === 'video' && query.startsWith('http')) {
+        const info = await play.video_basic_info(query);
+        videoInfo = info.video_details;
+      } else {
+        const results = await play.search(query, { source: { youtube: 'video' }, limit: 1 });
+        if (!results || results.length === 0) {
+          throw new Error('검색 결과가 없습니다.');
+        }
+        videoInfo = results[0];
       }
-      videoInfo = results[0];
+
+      if (videoInfo && videoInfo.url) {
+        return {
+          id: `${videoInfo.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          videoId: videoInfo.id,
+          title: videoInfo.title || '제목 없음',
+          url: videoInfo.url,
+          durationSec: videoInfo.durationInSec || 0,
+          durationFormatted: videoInfo.durationRaw || 'LIVE',
+          thumbnail: videoInfo.thumbnails?.[0]?.url || null,
+          requester,
+        };
+      }
+    } catch (playErr) {
+      console.warn(`⚠️ [Music] play-dl 검색 실패, yt-dlp 폴백 시도 (${query}):`, playErr.message);
     }
 
+    // yt-dlp 폴백 검색/조회
+    const target = query.startsWith('http') ? query : `ytsearch1:${query}`;
+    const rawInfo = await youtubedl(target, {
+      dumpSingleJson: true,
+      noPlaylist: true,
+      noCheckCertificates: true,
+      noWarnings: true,
+      jsRuntimes: 'node',
+    });
+
+    const entry = rawInfo?.entries ? rawInfo.entries[0] : rawInfo;
+    if (!entry || (!entry.webpage_url && !entry.url)) {
+      throw new Error('검색 결과가 없습니다.');
+    }
+
+    const durationSec = Math.floor(entry.duration || 0);
+    const mins = Math.floor(durationSec / 60);
+    const secs = String(durationSec % 60).padStart(2, '0');
+    const durationFormatted = entry.duration_string || (durationSec > 0 ? `${mins}:${secs}` : 'LIVE');
+
     return {
-      id: `${videoInfo.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      videoId: videoInfo.id,
-      title: videoInfo.title || '제목 없음',
-      url: videoInfo.url,
-      durationSec: videoInfo.durationInSec || 0,
-      durationFormatted: videoInfo.durationRaw || 'LIVE',
-      thumbnail: videoInfo.thumbnails?.[0]?.url || null,
+      id: `${entry.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      videoId: entry.id,
+      title: entry.title || '제목 없음',
+      url: entry.webpage_url || entry.original_url || `https://www.youtube.com/watch?v=${entry.id}`,
+      durationSec,
+      durationFormatted,
+      thumbnail: entry.thumbnail || entry.thumbnails?.[0]?.url || null,
       requester,
     };
   }
